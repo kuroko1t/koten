@@ -11,7 +11,7 @@ import textwrap
 import traceback
 import re
 
-tensorflow_mpi_lib = Extension('tensorflow.mpi_lib', [])
+tensorflow_mpi_lib = Extension('koten.tensorflow.mpi_lib', [])
 
 def is_build_action():
     if len(sys.argv) <= 1:
@@ -56,11 +56,10 @@ def get_cpp_flags(build_ext):
 def get_link_flags(build_ext):
     last_err = None
     libtool_flags = ['-Wl,-exported_symbols_list']
-    ld_flags = ['-Wl,--version-script=horovod.lds']
     if sys.platform == 'darwin':
-        flags_to_try = [libtool_flags, ld_flags]
+        flags_to_try = [libtool_flags]
     else:
-        flags_to_try = [ld_flags, libtool_flags]
+        flags_to_try = [libtool_flags]
     for link_flags in flags_to_try:
         try:
             test_compile(build_ext, 'test_link_flags', extra_link_preargs=link_flags,
@@ -93,6 +92,7 @@ def get_tf_lib_dirs():
 
 def get_tf_libs(build_ext, lib_dirs, cpp_flags):
     last_err = None
+    print(tf_libs)
     for tf_libs in [['tensorflow_framework'], []]:
         try:
             lib_file = test_compile(build_ext, 'test_tensorflow_libs',
@@ -176,24 +176,16 @@ def get_tf_flags(build_ext, cpp_flags):
 
 
 def get_mpi_flags():
-    show_command = os.environ.get('HOROVOD_MPICXX_SHOW', 'mpicxx -show')
-    try:
-        mpi_show_output = subprocess.check_output(
-            shlex.split(show_command), universal_newlines=True).strip()
-        mpi_show_args = shlex.split(mpi_show_output)
-        if not mpi_show_args[0].startswith('-'):
-            # Open MPI and MPICH print compiler name as a first word, skip it
-            mpi_show_args = mpi_show_args[1:]
+    show_command = os.environ.get('KOTEN_MPICXX_SHOW', 'mpicxx -show')
+    mpi_show_output = subprocess.check_output(
+        shlex.split(show_command), universal_newlines=True).strip()
+    mpi_show_args = shlex.split(mpi_show_output)
+    if not mpi_show_args[0].startswith('-'):
+        # Open MPI and MPICH print compiler name as a first word, skip it
+        mpi_show_args = mpi_show_args[1:]
         # strip off compiler call portion and always escape each arg
         return ' '.join(['"' + arg.replace('"', '"\'"\'"') + '"'
                          for arg in mpi_show_args])
-    except Exception:
-        raise DistutilsPlatformError(
-            '%s failed (see error below), is MPI in $PATH?\n'
-            'Note: If your version of MPI has a custom command to show compilation flags, '
-            'please specify it with the HOROVOD_MPICXX_SHOW environment variable.\n\n'
-            '%s' % (show_command, traceback.format_exc()))
-
 
 def test_compile(build_ext, name, code, libraries=None, include_dirs=None, library_dirs=None,
                  macros=None, extra_compile_preargs=None, extra_link_preargs=None):
@@ -223,16 +215,16 @@ def get_cuda_dirs(build_ext, cpp_flags):
     cuda_include_dirs = []
     cuda_lib_dirs = []
 
-    cuda_home = os.environ.get('HOROVOD_CUDA_HOME')
+    cuda_home = os.environ.get('KOTEN_CUDA_HOME')
     if cuda_home:
         cuda_include_dirs += ['%s/include' % cuda_home]
         cuda_lib_dirs += ['%s/lib' % cuda_home, '%s/lib64' % cuda_home]
 
-    cuda_include = os.environ.get('HOROVOD_CUDA_INCLUDE')
+    cuda_include = os.environ.get('KOTEN_CUDA_INCLUDE')
     if cuda_include:
         cuda_include_dirs += [cuda_include]
 
-    cuda_lib = os.environ.get('HOROVOD_CUDA_LIB')
+    cuda_lib = os.environ.get('KOTEN_CUDA_LIB')
     if cuda_lib:
         cuda_lib_dirs += [cuda_lib]
 
@@ -253,12 +245,12 @@ def get_cuda_dirs(build_ext, cpp_flags):
     except (CompileError, LinkError):
         raise DistutilsPlatformError(
             'CUDA library was not found (see error above).\n'
-            'Please specify correct CUDA location with the HOROVOD_CUDA_HOME '
-            'environment variable or combination of HOROVOD_CUDA_INCLUDE and '
-            'HOROVOD_CUDA_LIB environment variables.\n\n'
-            'HOROVOD_CUDA_HOME - path where CUDA include and lib directories can be found\n'
-            'HOROVOD_CUDA_INCLUDE - path to CUDA include directory\n'
-            'HOROVOD_CUDA_LIB - path to CUDA lib directory')
+            'Please specify correct CUDA location with the KOTEN_CUDA_HOME '
+            'environment variable or combination of KOTEN_CUDA_INCLUDE and '
+            'KOTEN_CUDA_LIB environment variables.\n\n'
+            'KOTEN_CUDA_HOME - path where CUDA include and lib directories can be found\n'
+            'KOTEN_CUDA_INCLUDE - path to CUDA include directory\n'
+            'KOTEN_CUDA_LIB - path to CUDA lib directory')
 
     return cuda_include_dirs, cuda_lib_dirs
 
@@ -271,7 +263,8 @@ def get_common_options(build_ext):
     cuda_include_dirs, cuda_lib_dirs = get_cuda_dirs(build_ext, cpp_flags)
     MACROS = []
     INCLUDES = []
-    SOURCES = ['common/allreduce.cpp']
+    SOURCES = ['koten/common/allreduce.cpp',
+               'koten/common/operation.cpp']
     COMPILE_FLAGS = cpp_flags + shlex.split(mpi_flags)
     LINK_FLAGS = link_flags + shlex.split(mpi_flags)
     LIBRARY_DIRS = []
@@ -297,7 +290,7 @@ def build_tf_extension(build_ext, options):
     tensorflow_mpi_lib.define_macros = options['MACROS']
     tensorflow_mpi_lib.include_dirs = options['INCLUDES']
     tensorflow_mpi_lib.sources = options['SOURCES'] + \
-        ['tensorflow/mpi_ops.cc']
+        ['koten/tensorflow/mpi_ops.cc']
     tensorflow_mpi_lib.extra_compile_args = options['COMPILE_FLAGS'] + \
         tf_compile_flags
     tensorflow_mpi_lib.extra_link_args = options['LINK_FLAGS'] + tf_link_flags
